@@ -1,6 +1,6 @@
 # RocketLogger
 
-#### Developed by Kristian Lauszus, 2019
+#### Developed by Kristian Lauszus and Mads Bornebusch, 2019
 
 The code is released under the GNU General Public License.
 _________
