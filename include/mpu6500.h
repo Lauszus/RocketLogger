@@ -20,12 +20,31 @@
 
 #include <stdint.h>
 
-#include "types.h"
-
 #define GRAVITATIONAL_ACCELERATION          (9.80665f) // https://en.wikipedia.org/wiki/Gravitational_acceleration
 #define MPU_INT_FREQ_HZ                     (1000U) // Sample at 1 kHz
 #define DEG_TO_RADf                         (0.017453292519943295769236907684886f)
 #define RAD_TO_DEGf                         (57.295779513082320876798154814105f)
+
+typedef union {
+  struct {
+    int16_t X, Y, Z;
+  } __attribute__((packed));
+  int16_t data[3];
+} sensorRaw_t;
+
+typedef union {
+  struct {
+    float X, Y, Z;
+  } __attribute__((packed));
+  float data[3];
+} sensor_t;
+
+typedef union {
+  struct {
+    float roll, pitch, yaw;
+  } __attribute__((packed));
+  float data[3];
+} angle_t;
 
 /** Struct for MPU-6500 data */
 typedef struct {
