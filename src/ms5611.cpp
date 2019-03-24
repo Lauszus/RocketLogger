@@ -19,7 +19,7 @@
 
 #include <Arduino.h>
 
-#include "assert.h"
+#include "rocket_assert.h"
 #include "i2c.h"
 #include "ms5611.h"
 
@@ -34,7 +34,7 @@
 #define pow2(x)                         ((x)*(x))
 
 void MS5611_Init(ms5611_t *ms5611, ms5611_osr_mask_e ms5611_osr_mask) {
-  ASSERT(I2C_Write(MS5611_ADDRESS, MS5611_CMD_RESET) == 0);
+  ROCKET_ASSERT(I2C_Write(MS5611_ADDRESS, MS5611_CMD_RESET) == 0);
 
   // Set the OSR value and set the delay required for a measurement
   // Note that the maximum value from the datasheet is used
@@ -56,7 +56,7 @@ void MS5611_Init(ms5611_t *ms5611, ms5611_osr_mask_e ms5611_osr_mask) {
       ms5611->osr_delay_micros = 600;
       break;
     default:
-      ASSERT(false && "Invalid OSR value");
+      ROCKET_ASSERT(false && "Invalid OSR value");
   }
 
   delay(100);
@@ -65,7 +65,7 @@ void MS5611_Init(ms5611_t *ms5611, ms5611_osr_mask_e ms5611_osr_mask) {
   // Note that the registers has to be read one at a time
   for (uint8_t i = 0; i < 6; i++) {
     uint8_t buf[2];
-    ASSERT(I2C_ReadData(MS5611_ADDRESS, MS5611_CMD_READ_PROM + 2 * i, buf, 2, true) == 0);
+    ROCKET_ASSERT(I2C_ReadData(MS5611_ADDRESS, MS5611_CMD_READ_PROM + 2 * i, buf, 2, true) == 0);
     ms5611->prom_c[i] = (uint16_t)((buf[0] << 8) | buf[1]);
   }
 }

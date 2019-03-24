@@ -17,7 +17,7 @@
 
 #include <Arduino.h>
 
-#include "assert.h"
+#include "rocket_assert.h"
 #include "i2c.h"
 #include "mpu6500.h"
 
@@ -44,26 +44,27 @@
 #define MPU6500_ACC_SCALE_FACTOR_8          4096.0f /*!< Accelerometer scale factor of +-8 g */
 #define MPU6500_ACC_SCALE_FACTOR_16         2048.0f /*!< Accelerometer scale factor of +-16 g */
 
-void MPU6500_Init(mpu6500_t *mpu6500) {
+void MPU6500_Init(mpu6500_t *mpu6500, uint16_t sample_rate) {
   uint8_t buf[5]; // Buffer for I2C data
-  ASSERT(I2C_ReadData(MPU6500_ADDRESS, MPU6500_WHO_AM_I, buf, 1) == 0);
-  ASSERT(buf[0] == MPU6500_WHO_AM_I_ID || buf[0] == MPU6500_WHO_AM_I_ID); // Read "WHO_AM_I" register
+  ROCKET_ASSERT(I2C_ReadData(MPU6500_ADDRESS, MPU6500_WHO_AM_I, buf, 1) == 0);
+  ROCKET_ASSERT(buf[0] == MPU6500_WHO_AM_I_ID || buf[0] == MPU6500_WHO_AM_I_ID); // Read "WHO_AM_I" register
 
   // Reset device, this resets all internal registers to their default values
-  ASSERT(I2C_WriteData(MPU6500_ADDRESS, MPU6500_PWR_MGMT_1, 1U << 7) == 0);
+  ROCKET_ASSERT(I2C_WriteData(MPU6500_ADDRESS, MPU6500_PWR_MGMT_1, 1U << 7) == 0);
   delay(100); // The power on reset time is specified to 100 ms. It seems to be the case with a software reset as well
   do {
-    ASSERT(I2C_ReadData(MPU6500_ADDRESS, MPU6500_PWR_MGMT_1, buf, 1) == 0);
+    ROCKET_ASSERT(I2C_ReadData(MPU6500_ADDRESS, MPU6500_PWR_MGMT_1, buf, 1) == 0);
     delay(1);
   } while (buf[0] & (1U << 7)); // Wait for the bit to clear
-  ASSERT(I2C_WriteData(MPU6500_ADDRESS, MPU6500_PWR_MGMT_1, (1U << 3) | (1U << 0)) == 0); // Disable sleep mode, disable temperature sensor and use PLL as clock reference
+  ROCKET_ASSERT(I2C_WriteData(MPU6500_ADDRESS, MPU6500_PWR_MGMT_1, (1U << 3) | (1U << 0)) == 0); // Disable sleep mode, disable temperature sensor and use PLL as clock reference
 
-  buf[0] = 1000 / MPU_INT_FREQ_HZ - 1; // Set the sample rate in Hz - frequency = 1000/(register + 1) Hz
+  ROCKET_ASSERT(sample_rate < 1000); // 1 kHz the maximum supported by the sensor
+  buf[0] = 1000U / sample_rate - 1; // Set the sample rate in Hz - frequency = 1000/(register + 1) Hz
   buf[1] = 0x01; // Disable FSYNC and set 184 Hz Gyro filtering, 1 kHz sampling rate
   buf[2] = 0U << 3; // Set Gyro Full Scale Range to +-250 deg/s
   buf[3] = 3U << 3; // Set Accelerometer Full Scale Range to +-16 g
   buf[4] = 0x00; // 218.1 Hz Acc filtering, 1 kHz sampling rate
-  ASSERT(I2C_WriteData(MPU6500_ADDRESS, MPU6500_SMPLRT_DIV, buf, 5) == 0); // Write to all five registers at once
+  ROCKET_ASSERT(I2C_WriteData(MPU6500_ADDRESS, MPU6500_SMPLRT_DIV, buf, 5) == 0); // Write to all five registers at once
 
   // Set accelerometer and gyroscope scale factor from datasheet
   mpu6500->gyroScaleFactor = MPU6500_GYRO_SCALE_FACTOR_250;
@@ -75,7 +76,7 @@ void MPU6500_Init(mpu6500_t *mpu6500) {
                                   // When this bit is equal to 1, the INT pin is held high until the interrupt is cleared
                                   // When this bit is equal to 1, interrupt status is cleared if any read operation is performed
   buf[1] = 1U << 0;               // Enable RAW_RDY_EN - When set to 1, Enable Raw Sensor Data Ready interrupt to propagate to interrupt pin
-  ASSERT(I2C_Write(MPU6500_ADDRESS, MPU6500_INT_PIN_CFG, buf, 2) == 0); // Write to both registers at once
+  ROCKET_ASSERT(I2C_Write(MPU6500_ADDRESS, MPU6500_INT_PIN_CFG, buf, 2) == 0); // Write to both registers at once
 #endif
 
   delay(10); // Wait for sensor to stabilize

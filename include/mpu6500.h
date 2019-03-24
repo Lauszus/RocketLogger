@@ -21,7 +21,6 @@
 #include <stdint.h>
 
 #define GRAVITATIONAL_ACCELERATION          (9.80665f) // https://en.wikipedia.org/wiki/Gravitational_acceleration
-#define MPU_INT_FREQ_HZ                     (200U) // Sample frequency
 #define DEG_TO_RADf                         (0.017453292519943295769236907684886f)
 #define RAD_TO_DEGf                         (57.295779513082320876798154814105f)
 
@@ -54,7 +53,7 @@ typedef struct {
   sensor_t accSi; /*!< Accelerometer readings in m/s^2 */
 } mpu6500_t;
 
-void MPU6500_Init(mpu6500_t *mpu6500);
+void MPU6500_Init(mpu6500_t *mpu6500, uint16_t sample_rate);
 
 uint8_t MPU6500_DateReady(bool *ready);
 

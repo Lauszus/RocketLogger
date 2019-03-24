@@ -20,6 +20,6 @@
 
 #include <Arduino.h>
 
-#define ASSERT(x) do { if((x) == 0) { Serial.printf("Assert failed in \"%s\" at line \"%d\" in function \"%s\". Expression: \"%s\"\n", __FILE__, __LINE__, __func__, #x); Serial.flush(); delay(1000); ESP.restart(); for (;;); } } while (0)
+#define ROCKET_ASSERT(x) do { if((x) == 0) { Serial.printf("Assert failed in \"%s\" at line \"%d\" in function \"%s\". Expression: \"%s\"\n", __FILE__, __LINE__, __func__, #x); Serial.flush(); delay(1000); ESP.restart(); for (;;); } } while (0)
 
 #endif // __assert_h__
