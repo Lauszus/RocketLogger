@@ -58,7 +58,7 @@ void MPU6500_Init(mpu6500_t *mpu6500, uint16_t sample_rate) {
   } while (buf[0] & (1U << 7)); // Wait for the bit to clear
   ROCKET_ASSERT(I2C_WriteData(MPU6500_ADDRESS, MPU6500_PWR_MGMT_1, (1U << 3) | (1U << 0)) == 0); // Disable sleep mode, disable temperature sensor and use PLL as clock reference
 
-  ROCKET_ASSERT(sample_rate < 1000); // 1 kHz the maximum supported by the sensor
+  ROCKET_ASSERT(sample_rate <= 1000); // 1 kHz the maximum supported by the sensor
   buf[0] = 1000U / sample_rate - 1; // Set the sample rate in Hz - frequency = 1000/(register + 1) Hz
   buf[1] = 0x01; // Disable FSYNC and set 184 Hz Gyro filtering, 1 kHz sampling rate
   buf[2] = 0U << 3; // Set Gyro Full Scale Range to +-250 deg/s

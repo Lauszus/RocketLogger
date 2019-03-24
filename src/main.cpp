@@ -19,13 +19,14 @@
 #include <ESP8266WiFi.h>
 #include <WiFiClient.h>
 #include <ESP8266WebServer.h>
+#include <FS.h>
 
 #include "i2c.h"
 #include "mpu6500.h"
 #include "ms5611.h"
+#include "rocket_assert.h"
 
 #define USE_HEARTBEAT 0  // Used for debugging
-#define ARRAY_SIZE(x) (sizeof(x) / sizeof((x)[0])) // Handy macro for getting the size of an array
 
 // ESP-01 pinout:
 //  GPIO0: Low: bootloader, High: run from flash
@@ -41,17 +42,11 @@ const char *password = "rocketsrocks";
 static mpu6500_t mpu6500;
 static ms5611_t ms5611;
 
-typedef struct {
-  uint16_t timestamp; // The timestamp in ms
-  int32_t pressure; // Pressure in pascal
-  float mag_acceleration; // The magnitude of the acceleration in m/s^2
-} logging_data_t;
-
-static volatile bool logging_is_running = false;
-static volatile size_t logging_idx = 0;
-static volatile logging_data_t logging_data[3500]; // x seconds worth of data
-static const uint16_t MAXIMUM_SAMPLE_RATE = 200;
+static const uint16_t MAXIMUM_SAMPLE_RATE = 1000; // Maximum frequency supported by the IMU
 static volatile uint16_t sample_rate = MAXIMUM_SAMPLE_RATE;
+
+static File log_file;
+static const char *log_filename = "/log.txt";
 
 static void handleRoot(void) {
   Serial.println(F("Sending content"));
@@ -71,28 +66,32 @@ static void handleRoot(void) {
   server.sendContent(String(MAXIMUM_SAMPLE_RATE));
   server.sendContent(F(" Hz) </span>"));
   server.sendContent(F("<form action=\"/"));
-  server.sendContent(logging_is_running ? F("stop") : F("start"));
+  server.sendContent(log_file ? F("stop") : F("start"));
   server.sendContent(F("\" method=\"POST\">"));
-  if (!logging_is_running)
+  if (!log_file)
     server.sendContent(F("<input style=\"width:50%;\" type=\"number\" name=\"sample_rate\" placeholder=\"Sample rate\"></br>"));
   server.sendContent(F("<input style=\"width:50%;\" type=\"submit\" value=\""));
-  server.sendContent(logging_is_running ? F("Stop") : F("Start"));
+  server.sendContent(log_file ? F("Stop") : F("Start"));
   server.sendContent(F(" logging\"></form>"));
 
-  // Create a textbox with the logged data
-  if (!logging_is_running) {
-    server.sendContent(F("<textarea style=\"width:50%;height:10em;\">"));
-    for (size_t i = 0; i < logging_idx; i++) {
-      String data;
-      data.concat(logging_data[i].timestamp);
-      data.concat(',');
-      data.concat(logging_data[i].pressure);
-      data.concat(',');
-      data.concat(String(logging_data[i].mag_acceleration, 4));
-      data.concat('\n');
-      server.sendContent(data);
+  if (!log_file && SPIFFS.exists(log_filename)) {
+#if 1
+  // Create link to the log file
+  server.sendContent(F("<a href=\"/log.txt\" target=\"_blank\">log.txt</a>"));
+#else
+    // Create a textbox with the logged data
+    File f = SPIFFS.open(log_filename, "r");
+    if (f) {
+      Serial.print(F("File size: ")); Serial.println(f.size());
+      server.sendContent(F("<textarea style=\"width:50%;height:10em;\">"));
+      while (f.available()) {
+        server.sendContent(f.readStringUntil('\n'));
+        yield(); // Needed in order to prevent triggering the watchdog timer
+      }
+      f.close(); // Close file
+      server.sendContent(F("</textarea>"));
     }
-    server.sendContent(F("</textarea>"));
+#endif
   }
 
   server.sendContent(F("</body></html>")); // Close the body and html tags
@@ -100,6 +99,19 @@ static void handleRoot(void) {
   server.client().stop();
 
   Serial.println(F("Finished sending content"));
+}
+
+// See: https://tttapa.github.io/ESP8266/Chap11%20-%20SPIFFS.html
+static void handleLogFileRead(void) {
+  if (SPIFFS.exists(log_filename)) {
+    File f = SPIFFS.open(log_filename, "r");
+    ROCKET_ASSERT(f);
+    Serial.print(F("File size: ")); Serial.println(f.size());
+    size_t sent = server.streamFile(f, "text/plain"); // Send the file
+    Serial.print(F("Bytes sent: ")); Serial.println(sent);
+    f.close(); // Close file
+  } else
+    server.send(404, "text/plain", "404: Not Found");
 }
 
 static void logging(bool start) {
@@ -113,19 +125,40 @@ static void logging(bool start) {
       Serial.println(sample_rate);
     }
   }
-  if (start)
-    logging_idx = 0;
-  logging_is_running = start;
   server.sendHeader(F("Location"), F("/")); // Add a header to respond with a new location for the browser to go to the home page again
   server.send(303); // Send it back to the browser with an HTTP status 303 (See Other) to redirect
 }
 
 static void loggingStart(void) {
+  // Closed file it is is already open
+  if (log_file) {
+    Serial.println(F("Closed exiting logging file"));
+    log_file.close();
+  }
+
+  // Open a file for writing
+  if (SPIFFS.exists(log_filename)) {
+    Serial.println(F("Removing existing file"));
+    SPIFFS.remove(log_filename);
+  }
+  log_file = SPIFFS.open(log_filename, "w");
+  ROCKET_ASSERT(log_file);
+  log_file.println(F("Timestamp,pressure,gyroX,gyroY,gyroZ,accX,accY,accZ"));
+  Serial.println(F("Opened logging file"));
+
+  // Start logging
   logging(true);
   Serial.println(F("Logging started"));
 }
 
 static void loggingStop(void) {
+  // Closed any existing file
+  if (log_file) {
+    Serial.println(F("Closed logging file"));
+    log_file.close();
+  }
+
+  // Stop logging
   logging(false);
   Serial.println(F("Logging stopped"));
 }
@@ -151,9 +184,14 @@ void setup() {
   // This has to be enabled before the I2C, as we won't be using the RX pin
   Serial.begin(74880);
 
+  // Initailize the file system
+  ROCKET_ASSERT(SPIFFS.begin());
+  //ROCKET_ASSERT(SPIFFS.format());
+  Serial.println(F("File system was initailize"));
+
   // Initialize the I2C and configure the IMU and barometer
-  I2C_Init(2, 3);
-  MPU6500_Init(&mpu6500, MAXIMUM_SAMPLE_RATE); // Sample at 200 Hz
+  I2C_Init(2, 3); // SDA: GPIO2 and SCL: GPIO3
+  MPU6500_Init(&mpu6500, MAXIMUM_SAMPLE_RATE);
   Serial.println(F("MPU6500 configured"));
 
   MS5611_Init(&ms5611, MS5611_OSR_256); // Sample as fast as possible
@@ -167,6 +205,7 @@ void setup() {
 
   // Start the websever
   server.on(F("/"), handleRoot);
+  server.on(log_filename, handleLogFileRead);
   server.on(F("/start"), HTTP_POST, loggingStart);
   server.on(F("/stop"), HTTP_POST, loggingStop);
   server.begin();
@@ -197,14 +236,36 @@ void loop() {
         Serial.print(ms5611.altitude); Serial.print(F(" m, "));
         Serial.print(ms5611.temperature); Serial.print(F(" C\n"));
 #endif
-        if (logging_is_running) {
-          logging_data[logging_idx].timestamp = millis() % UINT16_MAX;
-          logging_data[logging_idx].pressure = ms5611.pressure;
-          logging_data[logging_idx].mag_acceleration = sqrtf(mpu6500.accSi.X * mpu6500.accSi.X + mpu6500.accSi.Y * mpu6500.accSi.Y + mpu6500.accSi.Z * mpu6500.accSi.Z);
+        if (log_file) {
+          log_file.print(micros());
+          log_file.write(',');
+          log_file.print(ms5611.pressure);
+          log_file.write(',');
+          log_file.print(mpu6500.gyroRate.roll, 4);
+          log_file.write(',');
+          log_file.print(mpu6500.gyroRate.pitch, 4);
+          log_file.write(',');
+          log_file.print(mpu6500.gyroRate.yaw, 4);
+          log_file.write(',');
+          log_file.print(mpu6500.accSi.X, 4);
+          log_file.write(',');
+          log_file.print(mpu6500.accSi.Y, 4);
+          log_file.write(',');
+          log_file.println(mpu6500.accSi.Z, 4);
 
-          if (++logging_idx >= ARRAY_SIZE(logging_data)) {
-            logging_is_running = false;
-            Serial.println(F("Logging ended"));
+          static uint8_t check_files_info_counter = 0;
+          if (++check_files_info_counter >= 10) {
+            check_files_info_counter = 0;
+            // Determine if the file system is full
+            FSInfo fs_info;
+            SPIFFS.info(fs_info);
+
+            // TODO: Why does it stop working before it is actually full?
+            // It seems to have something to do with the blocks
+            if (fs_info.usedBytes + 2 * fs_info.blockSize >= fs_info.totalBytes) {
+              log_file.close();
+              Serial.println(F("Logging ended"));
+            }
           }
         }
       } else {
@@ -218,7 +279,13 @@ void loop() {
   }
 
   // Sample according to the sample rate
-  // This won't be accorate,
-  // as it does not take into account the time it takes to read the sensors
-  delay(1000 / sample_rate);
+  static uint32_t timer = 0;
+  uint32_t now = micros();
+  uint32_t dt_us = now - timer;
+  timer = now;
+  uint32_t sleep_us = 1000000U / sample_rate;
+  if (dt_us < sleep_us) {
+    sleep_us -= dt_us;
+    delayMicroseconds(sleep_us);
+  }
 }
