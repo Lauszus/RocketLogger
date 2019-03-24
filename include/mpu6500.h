@@ -21,7 +21,7 @@
 #include <stdint.h>
 
 #define GRAVITATIONAL_ACCELERATION          (9.80665f) // https://en.wikipedia.org/wiki/Gravitational_acceleration
-#define MPU_INT_FREQ_HZ                     (1000U) // Sample at 1 kHz
+#define MPU_INT_FREQ_HZ                     (200U) // Sample frequency
 #define DEG_TO_RADf                         (0.017453292519943295769236907684886f)
 #define RAD_TO_DEGf                         (57.295779513082320876798154814105f)
 

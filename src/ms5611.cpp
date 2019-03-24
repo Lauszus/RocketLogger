@@ -107,12 +107,12 @@ uint8_t MS5611_GetData(ms5611_t *ms5611) {
   // Check if the temperature is below 20 C
   int32_t T2 = 0;
   int64_t OFF2 = 0, SENS2 = 0;
-
   if (TEMP < 2000) {
     T2 = pow2((int64_t)dT) / 2147483648UL;
     OFF2 = 5 * pow2((int64_t)(TEMP - 2000)) / 2;
     SENS2 = 5 * pow2((int64_t)(TEMP - 2000)) / 4;
 
+    // Check if the temperature is below -15 C
     if (TEMP < -1500) {
       OFF2 = OFF2 + 7 * pow2((int64_t)(TEMP + 1500));
       SENS2 = SENS2 + 11 * pow2((int64_t)(TEMP + 1500)) / 2;
