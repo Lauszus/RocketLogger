@@ -293,5 +293,6 @@ void loop() {
   if (dt_us < sleep_us) {
     sleep_us -= dt_us;
     delayMicroseconds(sleep_us);
-  }
+  } else
+    yield(); // Make sure we allow the RTOS to run other tasks
 }
