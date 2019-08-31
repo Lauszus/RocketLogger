@@ -247,11 +247,11 @@ void loop() {
           log_file.write(',');
           log_file.print(ms5611.pressure);
           log_file.write(',');
-          log_file.print(mpu6500.gyroRate.roll, 4);
+          log_file.print(mpu6500.gyroRate.roll * RAD_TO_DEGf, 4);
           log_file.write(',');
-          log_file.print(mpu6500.gyroRate.pitch, 4);
+          log_file.print(mpu6500.gyroRate.pitch * RAD_TO_DEGf, 4);
           log_file.write(',');
-          log_file.print(mpu6500.gyroRate.yaw, 4);
+          log_file.print(mpu6500.gyroRate.yaw * RAD_TO_DEGf, 4);
           log_file.write(',');
           log_file.print(mpu6500.accSi.X, 4);
           log_file.write(',');
