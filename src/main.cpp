@@ -47,6 +47,7 @@ static volatile uint16_t sample_rate = MAXIMUM_SAMPLE_RATE;
 
 static File log_file;
 static const char *log_filename = "/log.txt";
+static uint32_t start_timestamp = 0;
 
 static void handleRoot(void) {
   Serial.println(F("Sending content"));
@@ -104,7 +105,7 @@ static void handleRoot(void) {
 // See: https://tttapa.github.io/ESP8266/Chap11%20-%20SPIFFS.html
 static void handleLogFileRead(void) {
   if (SPIFFS.exists(log_filename)) {
-    File f = SPIFFS.open(log_filename, "r");
+    File f = SPIFFS.open(log_filename, "r"); // Open a file for reading
     ROCKET_ASSERT(f);
     Serial.print(F("File size: ")); Serial.println(f.size());
     size_t sent = server.streamFile(f, "text/plain"); // Send the file
@@ -114,7 +115,7 @@ static void handleLogFileRead(void) {
     server.send(404, F("text/plain"), F("404: Not Found"));
 }
 
-static void logging(bool start) {
+static void loggingRedirect(void) {
   if(server.hasArg("sample_rate")) {
     int new_sample_rate = server.arg("sample_rate").toInt();
     if (new_sample_rate > 0) { // Make sure it was not an empty string
@@ -136,19 +137,22 @@ static void loggingStart(void) {
     log_file.close();
   }
 
-  // Open a file for writing
+  // Delete the existing file
   if (SPIFFS.exists(log_filename)) {
     Serial.println(F("Removing existing file"));
     SPIFFS.remove(log_filename);
   }
-  log_file = SPIFFS.open(log_filename, "w");
+
+  log_file = SPIFFS.open(log_filename, "w"); // Open a file for writing
   ROCKET_ASSERT(log_file);
-  log_file.println(F("Timestamp,pressure,gyroX,gyroY,gyroZ,accX,accY,accZ"));
+  start_timestamp = micros(); // Reset the start timestamp
+  log_file.println(F("Timestamp,pressure,gyroX,gyroY,gyroZ,accX,accY,accZ")); // Write the header
   Serial.println(F("Opened logging file"));
 
-  // Start logging
-  logging(true);
   Serial.println(F("Logging started"));
+
+  // Automatically redirect the user to the root page
+  loggingRedirect();
 }
 
 static void loggingStop(void) {
@@ -158,9 +162,10 @@ static void loggingStop(void) {
     log_file.close();
   }
 
-  // Stop logging
-  logging(false);
   Serial.println(F("Logging stopped"));
+
+  // Automatically redirect the user to the root page
+  loggingRedirect();
 }
 
 #if USE_HEARTBEAT
@@ -238,7 +243,7 @@ void loop() {
         Serial.print(ms5611.temperature); Serial.print(F(" C\n"));
 #endif
         if (log_file) {
-          log_file.print(micros());
+          log_file.print(micros() - start_timestamp);
           log_file.write(',');
           log_file.print(ms5611.pressure);
           log_file.write(',');
