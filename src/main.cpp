@@ -111,7 +111,7 @@ static void handleLogFileRead(void) {
     Serial.print(F("Bytes sent: ")); Serial.println(sent);
     f.close(); // Close file
   } else
-    server.send(404, "text/plain", "404: Not Found");
+    server.send(404, F("text/plain"), F("404: Not Found"));
 }
 
 static void logging(bool start) {
@@ -183,6 +183,7 @@ void setup() {
 
   // This has to be enabled before the I2C, as we won't be using the RX pin
   Serial.begin(74880);
+  Serial.println(F("\nStarting RocketLogger"));
 
   // Initailize the file system
   ROCKET_ASSERT(SPIFFS.begin());

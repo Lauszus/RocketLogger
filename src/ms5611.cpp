@@ -98,10 +98,10 @@ uint8_t MS5611_GetData(ms5611_t *ms5611) {
   // Actual temperature (-40 ... 85 C with 0.01 C resolution)
   int32_t TEMP = 2000L + ((int64_t)dT * (int64_t)ms5611->prom_c[5]) / 8388608UL;
 
-  // Offset at actualy temperature
+  // Offset at actual temperature
   int64_t OFF = (int64_t)ms5611->prom_c[1] * 65536 + ((int64_t)ms5611->prom_c[3] * dT) / 128;
 
-  // Sensitivity at actualy temperature
+  // Sensitivity at actual temperature
   int64_t SENS = (int64_t)ms5611->prom_c[0] * 32768 + ((int64_t)ms5611->prom_c[2] * dT) / 256;
 
   // Check if the temperature is below 20 C
@@ -130,7 +130,7 @@ uint8_t MS5611_GetData(ms5611_t *ms5611) {
   static const int32_t p0 = 101325; // Pressure at sea level
   ms5611->altitude = 44330.0f * (1.0f - powf((float)ms5611->pressure / (float)p0, 1.0f / 5.255f)); // Get altitude in m
 
-  // Convert temperatue to celcius
+  // Convert temperature to celsius
   ms5611->temperature = (float)TEMP / 100.0f;
 
   return 0;

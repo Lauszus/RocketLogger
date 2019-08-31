@@ -83,11 +83,11 @@ void MPU6500_Init(mpu6500_t *mpu6500, uint16_t sample_rate) {
 }
 
 uint8_t MPU6500_DateReady(bool *ready) {
-  uint8_t buf[14]; // Buffer for the SPI data
-  uint8_t rcode = I2C_ReadData(MPU6500_ADDRESS, MPU6500_INT_STATUS, buf, 1);
+  uint8_t buf; // Buffer for the SPI data
+  uint8_t rcode = I2C_ReadData(MPU6500_ADDRESS, MPU6500_INT_STATUS, &buf, 1);
   if (rcode != 0)
     return rcode;
-  *ready = buf[0] & 0x01;
+  *ready = buf & 0x01; // Read the "RAW_DATA_RDY_INT" bit
   return 0;
 }
 
