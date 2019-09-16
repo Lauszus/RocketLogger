@@ -237,7 +237,9 @@ void setup() {
   Serial.println(F("MS5611 configured"));
 
   // Configure the hotspot
-  WiFi.softAP(ssid, password);
+  // Note that we set the maximum number of connection to 1, as access to the log file is not thread safe
+  int channel = 1, ssid_hidden = 0, max_connection = 1;
+  ROCKET_ASSERT(WiFi.softAP(ssid, password, channel, ssid_hidden, max_connection));
   IPAddress myIP = WiFi.softAPIP();
   Serial.print(F("AP IP address: "));
   Serial.println(myIP);
