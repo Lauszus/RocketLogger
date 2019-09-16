@@ -226,7 +226,6 @@ void setup() {
 
   // Initailize the file system
   ROCKET_ASSERT(SPIFFS.begin());
-  //ROCKET_ASSERT(SPIFFS.format());
   Serial.println(F("File system was initailize"));
 
   // Initialize the I2C and configure the IMU and barometer
@@ -257,6 +256,10 @@ void setup() {
   //server.serveStatic(LogFile::Filename, SPIFFS, LogFile::Filename);
   server.on("/start", HTTP_POST, loggingStart);
   server.on("/stop", HTTP_POST, loggingStop);
+  server.on("/format", HTTP_GET, [](AsyncWebServerRequest *request) {
+    ROCKET_ASSERT(SPIFFS.format());
+    request->send(200, F("text/plain"), F("Filesystem successfully formatted"));
+  });
   //server.serveStatic("/fs", SPIFFS, "/"); // Attach filesystem root at URL /fs
   server.onNotFound([](AsyncWebServerRequest *request) {
     request->send(404, F("text/plain"), F("404: Not Found"));
