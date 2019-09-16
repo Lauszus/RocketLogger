@@ -43,4 +43,6 @@ void MS5611_Init(ms5611_t *ms5611, ms5611_osr_mask_e ms5611_osr_mask);
 
 uint8_t MS5611_GetData(ms5611_t *ms5611);
 
+float MS5611_GetAbsoluteAltitude(int32_t pressure);
+
 #endif // __ms5611_h__

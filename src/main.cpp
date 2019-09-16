@@ -15,10 +15,14 @@
  e-mail   :  lauszus@gmail.com
 */
 
+// ESP-01 pinout:
+//  GPIO0: Low: bootloader, High: run from flash
+//  GPIO1: TX
+//  GPIO2: SDA
+//  GPIO3: RX/SCL
+
 #include <Arduino.h>
-#include <ESP8266WiFi.h>
-#include <WiFiClient.h>
-#include <ESP8266WebServer.h>
+#include <ESPAsyncWebServer.h>
 #include <FS.h>
 
 #include "i2c.h"
@@ -28,13 +32,7 @@
 
 #define USE_HEARTBEAT 0  // Used for debugging
 
-// ESP-01 pinout:
-//  GPIO0: Low: bootloader, High: run from flash
-//  GPIO1: TX
-//  GPIO2: SDA
-//  GPIO3: RX/SCL
-
-ESP8266WebServer server(80);
+static AsyncWebServer server(80);
 
 const char *ssid = "Rocket";
 const char *password = "rocketsrocks";
@@ -45,79 +43,118 @@ static ms5611_t ms5611;
 static const uint16_t MAXIMUM_SAMPLE_RATE = 1000; // Maximum frequency supported by the IMU
 static volatile uint16_t sample_rate = MAXIMUM_SAMPLE_RATE;
 
-static File log_file;
-static const char *log_filename = "/log.txt";
 static uint32_t start_timestamp = 0;
 
-static void handleRoot(void) {
-  Serial.println(F("Sending content"));
+struct log_t {
+  uint32_t timestamp;
+  int32_t pressure;
+  float gyroX, gyroY, gyroZ;
+  float accX, accY, accZ;
+} __attribute__((packed));
 
-  server.sendHeader(F("Cache-Control"), F("no-cache,no-store,must-revalidate"));
-  server.sendHeader(F("Pragma"), F("no-cache"));
-  server.sendHeader(F("Expires"), F("-1"));
-  server.setContentLength(CONTENT_LENGTH_UNKNOWN);
+static File log_file;
+static constexpr const char *log_filename = "/log.bin";
 
-  // Begin chunked transfer
-  server.send(200, F("text/html"), F(""));
-  server.sendContent(F("<html><head><meta name=\"viewport\" content=\"width=device-width,initial-scale=1.0,minimum-scale=1.0,maximum-scale=1.0,user-scalable=no,viewport-fit=cover\"></head>"));
-  server.sendContent(F("<body style=\"margin:50px auto;text-align:center;\">"));
-  server.sendContent(F("<span>Sample rate: "));
-  server.sendContent(String(sample_rate));
-  server.sendContent(F(" Hz (max: "));
-  server.sendContent(String(MAXIMUM_SAMPLE_RATE));
-  server.sendContent(F(" Hz) </span>"));
-  server.sendContent(F("<form action=\"/"));
-  server.sendContent(log_file ? F("stop") : F("start"));
-  server.sendContent(F("\" method=\"POST\">"));
-  if (!log_file)
-    server.sendContent(F("<input style=\"width:50%;\" type=\"number\" name=\"sample_rate\" placeholder=\"Sample rate\"></br>"));
-  server.sendContent(F("<input style=\"width:50%;\" type=\"submit\" value=\""));
-  server.sendContent(log_file ? F("Stop") : F("Start"));
-  server.sendContent(F(" logging\"></form>"));
+static void handleRoot(AsyncWebServerRequest *request) {
+  Serial.println(F("Sending root content"));
 
-  if (!log_file && SPIFFS.exists(log_filename)) {
-#if 1
-  // Create link to the log file
-  server.sendContent(F("<a href=\"/log.txt\" target=\"_blank\">log.txt</a>"));
-#else
-    // Create a textbox with the logged data
-    File f = SPIFFS.open(log_filename, "r");
-    if (f) {
-      Serial.print(F("File size: ")); Serial.println(f.size());
-      server.sendContent(F("<textarea style=\"width:50%;height:10em;\">"));
-      while (f.available()) {
-        server.sendContent(f.readStringUntil('\n'));
-        yield(); // Needed in order to prevent triggering the watchdog timer
-      }
-      f.close(); // Close file
-      server.sendContent(F("</textarea>"));
-    }
-#endif
-  }
+  AsyncResponseStream *response = request->beginResponseStream(F("text/html"));
+  response->addHeader(F("Cache-Control"), F("no-cache,no-store,must-revalidate"));
+  response->addHeader(F("Pragma"), F("no-cache"));
+  response->addHeader(F("Expires"), F("-1"));
 
-  server.sendContent(F("</body></html>")); // Close the body and html tags
-  server.sendContent(F("")); // Tells the web client that the transfer is done
-  server.client().stop();
+  // Format the HTML response
+  response->print(F("<html><head><meta name=\"viewport\" content=\"width=device-width,initial-scale=1.0,minimum-scale=1.0,maximum-scale=1.0,user-scalable=no,viewport-fit=cover\"></head>"));
+  response->print(F("<body style=\"margin:50px auto;text-align:center;\">"));
+  response->print(F("<span>Sample rate: "));
+  response->print(String(sample_rate));
+  response->print(F(" Hz (max: "));
+  response->print(String(MAXIMUM_SAMPLE_RATE));
+  response->print(F(" Hz) </span>"));
+  response->print(F("<form action=\"/"));
+  response->print(log_file ? F("stop") : F("start")); // Check if the file is open
+  response->print(F("\" method=\"POST\">"));
+  if (!log_file) // Check if the file is closed
+    response->print(F("<input style=\"width:50%;\" type=\"number\" name=\"sample_rate\" placeholder=\"Sample rate\"></br>"));
+  response->print(F("<input style=\"width:50%;\" type=\"submit\" value=\""));
+  response->print(log_file ? F("Stop") : F("Start"));
+  response->print(F(" logging\"></form>"));
+  if (!log_file && SPIFFS.exists(log_filename)) // Make sure the log file is closed and exist
+    response->print(F("<a href=\"/log.txt\" target=\"_blank\">log.txt</a>")); // Create link to the log file
+  response->print(F("</body></html>")); // Close the body and html tags
 
-  Serial.println(F("Finished sending content"));
+  request->send(response); // Send the response
+  Serial.println(F("Finished sending root content"));
 }
 
 // See: https://tttapa.github.io/ESP8266/Chap11%20-%20SPIFFS.html
-static void handleLogFileRead(void) {
-  if (SPIFFS.exists(log_filename)) {
-    File f = SPIFFS.open(log_filename, "r"); // Open a file for reading
-    ROCKET_ASSERT(f);
-    Serial.print(F("File size: ")); Serial.println(f.size());
-    size_t sent = server.streamFile(f, "text/plain"); // Send the file
-    Serial.print(F("Bytes sent: ")); Serial.println(sent);
-    f.close(); // Close file
+static void handleLogFileRead(AsyncWebServerRequest *request) {
+  static size_t row_count = 0;
+  // Make sure the log file is closed and exist
+  // and make sure that we are not already sending the file
+  if (!log_file && SPIFFS.exists(log_filename) && row_count == 0) {
+    // Send the binary data as a normal CSV text file
+    AsyncWebServerResponse *response = request->beginChunkedResponse("text/plain", [](uint8_t *buffer, size_t maxLen, size_t index) -> size_t {
+      // Write up to "maxLen" bytes into "buffer" and return the amount written.
+      // index equals the amount of bytes that have been already sent
+      // You will be asked for more data until 0 is returned
+      // Keep in mind that you can not delay or yield waiting for more data!
+
+      //Serial.printf("maxLen: %u, index: %u\n", maxLen, index);
+      size_t len = 0;
+      if (index == 0) { // This is the first response, so copy over the header
+        // Write the header
+        Serial.println(F("Sending log file"));
+        int copied = snprintf((char*)buffer, maxLen, // Make sure we do not overflow the buffer
+          "Timestamp,pressure,altitude,gyroX,gyroY,gyroZ,accX,accY,accZ\n");
+        ROCKET_ASSERT(copied >= 0); // Make sure snprintf does not fail
+        //Serial.printf("Bytes copied: %u\n", copied);
+        len += copied; // Add the number of bytes we just wrote to the buffer
+      } else {
+        File f = SPIFFS.open(log_filename, "r");
+        ROCKET_ASSERT(f);
+        ROCKET_ASSERT(f.size() % sizeof(log_t) == 0); // If this fails, then the file is corrupted
+
+        //Serial.printf("File size: %u, row count: %u, log size: %u\n", f.size(), row_count, sizeof(log_t));
+        while (row_count * sizeof(log_t) < f.size()) { // Stop when we are done reading the file
+          ROCKET_ASSERT(f.seek(row_count * sizeof(log_t), SeekSet)); // Go to the current row
+          row_count++; // Increment the row counter
+          log_t log;
+          ROCKET_ASSERT((int)f.read((uint8_t*)&log, sizeof(log_t)) != -1); // Now read one log of data from the file
+
+          // Convert the binary data into a CSV format and copy it into the output buffer
+          // This code assumes that we have at least room for one row of data in each response or the string will be truncated
+          int copied = snprintf((char*)&buffer[len], maxLen - len, // Make sure we do not overflow the buffer
+            "%u,%d,%.4f,%.4f,%.4f,%.4f,%.4f,%.4f,%.4f\n",
+            log.timestamp, log.pressure, MS5611_GetAbsoluteAltitude(log.pressure),
+            log.gyroX, log.gyroY, log.gyroZ,
+            log.accX, log.accY, log.accZ);
+          ROCKET_ASSERT(copied >= 0); // Make sure snprintf does not fail
+          //Serial.printf("Bytes copied: %u\n", copied);
+          len += copied; // Add the number of bytes we just wrote to the buffer
+          if (len + 2 * copied > maxLen) // Make sure we have room for at least two more rows of data
+            break;
+        }
+        f.close();
+      }
+
+      // Check if we are done reading the file
+      if (len == 0) {
+        Serial.println(F("Done sending log file"));
+        row_count = 0; // Reset the row count and allow another request to access the file
+      }
+
+      //Serial.printf("Total bytes copied: %u\n", len);
+      return len;
+    });
+    request->send(response);
   } else
-    server.send(404, F("text/plain"), F("404: Not Found"));
+    request->send(404, F("text/plain"), F("404: Not Found"));
 }
 
-static void loggingRedirect(void) {
-  if(server.hasArg("sample_rate")) {
-    int new_sample_rate = server.arg("sample_rate").toInt();
+static void loggingRedirect(AsyncWebServerRequest *request) {
+  if (request->hasArg("sample_rate")) {
+    int new_sample_rate = request->arg("sample_rate").toInt();
     if (new_sample_rate > 0) { // Make sure it was not an empty string
       if (new_sample_rate > MAXIMUM_SAMPLE_RATE)
         new_sample_rate = MAXIMUM_SAMPLE_RATE;
@@ -126,13 +163,12 @@ static void loggingRedirect(void) {
       Serial.println(sample_rate);
     }
   }
-  server.sendHeader(F("Location"), F("/")); // Add a header to respond with a new location for the browser to go to the home page again
-  server.send(303); // Send it back to the browser with an HTTP status 303 (See Other) to redirect
+  request->redirect(F("/")); // Redirect to the root
 }
 
-static void loggingStart(void) {
+static void loggingStart(AsyncWebServerRequest *request) {
   // Closed file it is is already open
-  if (log_file) {
+  if (log_file) { // Check if the file is open
     Serial.println(F("Closed exiting logging file"));
     log_file.close();
   }
@@ -143,29 +179,25 @@ static void loggingStart(void) {
     SPIFFS.remove(log_filename);
   }
 
+  start_timestamp = micros(); // Reset the start timestamp
   log_file = SPIFFS.open(log_filename, "w"); // Open a file for writing
   ROCKET_ASSERT(log_file);
-  start_timestamp = micros(); // Reset the start timestamp
-  log_file.println(F("Timestamp,pressure,gyroX,gyroY,gyroZ,accX,accY,accZ")); // Write the header
-  Serial.println(F("Opened logging file"));
-
   Serial.println(F("Logging started"));
 
   // Automatically redirect the user to the root page
-  loggingRedirect();
+  loggingRedirect(request);
 }
 
-static void loggingStop(void) {
+static void loggingStop(AsyncWebServerRequest *request) {
   // Closed any existing file
-  if (log_file) {
+  if (log_file) { // Check if the file is open
     Serial.println(F("Closed logging file"));
     log_file.close();
   }
-
   Serial.println(F("Logging stopped"));
 
   // Automatically redirect the user to the root page
-  loggingRedirect();
+  loggingRedirect(request);
 }
 
 #if USE_HEARTBEAT
@@ -210,17 +242,23 @@ void setup() {
   Serial.println(myIP);
 
   // Start the websever
-  server.on(F("/"), handleRoot);
-  server.on(log_filename, handleLogFileRead);
-  server.on(F("/start"), HTTP_POST, loggingStart);
-  server.on(F("/stop"), HTTP_POST, loggingStop);
+  server.on("/", HTTP_GET, handleRoot);
+  server.on("/log.txt", HTTP_GET, handleLogFileRead); // This will convert the binary log file into a CSV format
+  server.on(log_filename, HTTP_GET, [](AsyncWebServerRequest *request) {
+    request->send(SPIFFS, log_filename, "application/octet-stream"); // Send the log file in binary format
+  });
+  //server.serveStatic(LogFile::Filename, SPIFFS, LogFile::Filename);
+  server.on("/start", HTTP_POST, loggingStart);
+  server.on("/stop", HTTP_POST, loggingStop);
+  //server.serveStatic("/fs", SPIFFS, "/"); // Attach filesystem root at URL /fs
+  server.onNotFound([](AsyncWebServerRequest *request) {
+    request->send(404, F("text/plain"), F("404: Not Found"));
+  });
   server.begin();
   Serial.println(F("HTTP server started"));
 }
 
 void loop() {
-  server.handleClient();
-
   bool ready;
   uint8_t rcode = MPU6500_DateReady(&ready);
   if (rcode == 0) {
@@ -242,26 +280,25 @@ void loop() {
         Serial.print(ms5611.altitude); Serial.print(F(" m, "));
         Serial.print(ms5611.temperature); Serial.print(F(" C\n"));
 #endif
-        if (log_file) {
-          log_file.print(micros() - start_timestamp);
-          log_file.write(',');
-          log_file.print(ms5611.pressure);
-          log_file.write(',');
-          log_file.print(mpu6500.gyroRate.roll * RAD_TO_DEGf, 4);
-          log_file.write(',');
-          log_file.print(mpu6500.gyroRate.pitch * RAD_TO_DEGf, 4);
-          log_file.write(',');
-          log_file.print(mpu6500.gyroRate.yaw * RAD_TO_DEGf, 4);
-          log_file.write(',');
-          log_file.print(mpu6500.accSi.X, 4);
-          log_file.write(',');
-          log_file.print(mpu6500.accSi.Y, 4);
-          log_file.write(',');
-          log_file.println(mpu6500.accSi.Z, 4);
+        if (log_file) { // Check if the file is open
+          log_t log = {
+            .timestamp = micros() - start_timestamp,
+            .pressure = ms5611.pressure,
+            .gyroX = mpu6500.gyroRate.roll * RAD_TO_DEGf,
+            .gyroY = mpu6500.gyroRate.pitch * RAD_TO_DEGf,
+            .gyroZ = mpu6500.gyroRate.yaw * RAD_TO_DEGf,
+            .accX = mpu6500.accSi.X,
+            .accY = mpu6500.accSi.Y,
+            .accZ = mpu6500.accSi.Z,
+          };
+
+          // Note that this might fail, but we do not care, as we will just write as fast as possible
+          log_file.write((uint8_t*)&log, sizeof(log));
 
           static uint8_t check_files_info_counter = 0;
           if (++check_files_info_counter >= 10) {
             check_files_info_counter = 0;
+
             // Determine if the file system is full
             FSInfo fs_info;
             SPIFFS.info(fs_info);
@@ -270,7 +307,9 @@ void loop() {
             // It seems to have something to do with the blocks
             if (fs_info.usedBytes + 2 * fs_info.blockSize >= fs_info.totalBytes) {
               log_file.close();
-              Serial.println(F("Logging ended"));
+              Serial.print(F("Logging ended after: "));
+              Serial.print((float)(micros() - start_timestamp) * 1e-6f);
+              Serial.println(F(" s"));
             }
           }
         }

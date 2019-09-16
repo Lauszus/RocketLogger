@@ -135,3 +135,8 @@ uint8_t MS5611_GetData(ms5611_t *ms5611) {
 
   return 0;
 }
+
+float MS5611_GetAbsoluteAltitude(int32_t pressure) {
+  static const uint32_t p0 = 101325U; // Pressure at sea level
+  return 44330.0f * (1.0f - powf((float)pressure / (float)p0, 1.0f / 5.255f)); // Calculate the absolute altitude
+}
