@@ -20,9 +20,12 @@
 
 #include <stdint.h>
 
-#define GRAVITATIONAL_ACCELERATION          (9.80665f) // https://en.wikipedia.org/wiki/Gravitational_acceleration
-#define DEG_TO_RADf                         (0.017453292519943295769236907684886f)
-#define RAD_TO_DEGf                         (57.295779513082320876798154814105f)
+#define MPU6500_MAX_SAMPLE_RATE     (1000U) // Maximum frequency supported by this driver
+#define MPU6500_MIN_SAMPLE_RATE     (4U) // Minimum frequency supported by this driver
+
+#define GRAVITATIONAL_ACCELERATION  (9.80665f) // https://en.wikipedia.org/wiki/Gravitational_acceleration
+#define DEG_TO_RADf                 (0.017453292519943295769236907684886f)
+#define RAD_TO_DEGf                 (57.295779513082320876798154814105f)
 
 typedef union {
   struct {
@@ -54,6 +57,8 @@ typedef struct {
 } mpu6500_t;
 
 void MPU6500_Init(mpu6500_t *mpu6500, uint16_t sample_rate);
+
+void MPU6500_SetSampleRate(uint16_t sample_rate);
 
 uint8_t MPU6500_DateReady(bool *ready);
 

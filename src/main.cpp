@@ -42,9 +42,7 @@ const char *password = "rocketsrocks";
 static mpu6500_t mpu6500;
 static ms5611_t ms5611;
 
-static const uint16_t MAXIMUM_SAMPLE_RATE = 1000; // Maximum frequency supported by the IMU
-static volatile uint16_t sample_rate = MAXIMUM_SAMPLE_RATE;
-
+static volatile uint16_t sample_rate = MPU6500_MAX_SAMPLE_RATE;
 static uint32_t start_timestamp = 0;
 
 struct log_t {
@@ -71,7 +69,7 @@ static void handleRoot(AsyncWebServerRequest *request) {
   response->print(F("<span>Sample rate: "));
   response->print(String(sample_rate));
   response->print(F(" Hz (max: "));
-  response->print(String(MAXIMUM_SAMPLE_RATE));
+  response->print(String(MPU6500_MAX_SAMPLE_RATE));
   response->print(F(" Hz) </span>"));
   response->print(F("<form action=\"/"));
   response->print(log_file ? F("stop") : F("start")); // Check if the file is open
@@ -158,11 +156,9 @@ static void loggingRedirect(AsyncWebServerRequest *request) {
   if (request->hasArg("sample_rate")) {
     int new_sample_rate = request->arg("sample_rate").toInt();
     if (new_sample_rate > 0) { // Make sure it was not an empty string
-      if (new_sample_rate > MAXIMUM_SAMPLE_RATE)
-        new_sample_rate = MAXIMUM_SAMPLE_RATE;
-      sample_rate = new_sample_rate;
-      Serial.print(F("New sample rate: "));
-      Serial.println(sample_rate);
+      sample_rate = constrain((uint16_t)new_sample_rate, MPU6500_MIN_SAMPLE_RATE, MPU6500_MAX_SAMPLE_RATE);
+      Serial.print(F("New sample rate: ")); Serial.println(sample_rate);
+      MPU6500_SetSampleRate(sample_rate);
     }
   }
   request->redirect(F("/")); // Redirect to the root
@@ -230,7 +226,7 @@ void setup() {
 
   // Initialize the I2C and configure the IMU and barometer
   I2C_Init(2, 3); // SDA: GPIO2 and SCL: GPIO3
-  MPU6500_Init(&mpu6500, MAXIMUM_SAMPLE_RATE);
+  MPU6500_Init(&mpu6500, MPU6500_MAX_SAMPLE_RATE);
   Serial.println(F("MPU6500 configured"));
 
   MS5611_Init(&ms5611, MS5611_OSR_256); // Sample as fast as possible
@@ -286,7 +282,6 @@ void loop() {
       Serial.print(mpu6500.accSi.Y); Serial.write(',');
       Serial.println(mpu6500.accSi.Z);
 #endif
-
       rcode = MS5611_GetData(&ms5611);
       if (rcode == 0) {
 #if 0
@@ -337,15 +332,5 @@ void loop() {
     Serial.println(rcode);
   }
 
-  // Sample according to the sample rate
-  static uint32_t timer = 0;
-  uint32_t now = micros();
-  uint32_t dt_us = now - timer;
-  timer = now;
-  uint32_t sleep_us = 1000000U / sample_rate;
-  if (dt_us < sleep_us) {
-    sleep_us -= dt_us;
-    delayMicroseconds(sleep_us);
-  } else
-    yield(); // Make sure we allow the RTOS to run other tasks
+  yield(); // Make sure we allow the RTOS to run other tasks
 }
