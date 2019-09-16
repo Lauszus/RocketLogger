@@ -22,6 +22,7 @@
 //  GPIO3: RX/SCL
 
 #include <Arduino.h>
+#include <DNSServer.h>
 #include <ESPAsyncWebServer.h>
 #include <FS.h>
 
@@ -33,6 +34,7 @@
 #define USE_HEARTBEAT 0  // Used for debugging
 
 static AsyncWebServer server(80);
+static DNSServer dnsServer;
 
 const char *ssid = "Rocket";
 const char *password = "rocketsrocks";
@@ -241,6 +243,11 @@ void setup() {
   Serial.print(F("AP IP address: "));
   Serial.println(myIP);
 
+  if (dnsServer.start(53, "*", myIP)) // Redirect all requests to the logger
+    Serial.println(F("DNS server started"));
+  else
+    Serial.println(F("Failed to start DNS server"));
+
   // Start the websever
   server.on("/", HTTP_GET, handleRoot);
   server.on("/log.txt", HTTP_GET, handleLogFileRead); // This will convert the binary log file into a CSV format
@@ -259,6 +266,8 @@ void setup() {
 }
 
 void loop() {
+  dnsServer.processNextRequest();
+
   bool ready;
   uint8_t rcode = MPU6500_DateReady(&ready);
   if (rcode == 0) {
